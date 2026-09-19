@@ -3,7 +3,14 @@
  * validation, the admin calendar, and tests. No Convex, no React, no I/O —
  * fully unit-testable.
  */
-import { addMinutesToTime, dayOfWeek, MAX_PARTY_SIZE, MIN_PARTY_SIZE } from "./tz";
+import {
+  addMinutesToTime,
+  dayOfWeek,
+  daysBetweenDates,
+  localToUtcMs,
+  MAX_PARTY_SIZE,
+  MIN_PARTY_SIZE,
+} from "./tz";
 
 const MINUTE = 60_000;
 

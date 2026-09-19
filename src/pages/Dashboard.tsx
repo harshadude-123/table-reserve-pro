@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LiveActivityCard } from "@/components/LiveActivityCard";
 import { useAuth } from "@/hooks/use-auth";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { Activity, LayoutDashboard, LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
 
 export default function Dashboard() {
@@ -36,19 +37,23 @@ export default function Dashboard() {
           </Button>
         </header>
 
-        <Card className="border-border/70 shadow-none">
-          <CardHeader>
-            <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <LayoutDashboard className="size-5" />
-            </div>
-            <CardTitle>Your dashboard is ready</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm leading-6 text-muted-foreground">
-            Replace this starter content with the product&apos;s authenticated
-            experience. The route is protected and sign-in returns here by
-            default.
-          </CardContent>
-        </Card>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="border-border/70 shadow-none">
+            <CardHeader>
+              <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <LayoutDashboard className="size-5" />
+              </div>
+              <CardTitle>Your dashboard is ready</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm leading-6 text-muted-foreground">
+              Replace this starter content with the product&apos;s authenticated
+              experience. The route is protected and sign-in returns here by
+              default.
+            </CardContent>
+          </Card>
+
+          <LiveActivityCard />
+        </div>
       </div>
     </main>
   );

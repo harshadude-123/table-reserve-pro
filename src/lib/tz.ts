@@ -47,13 +47,18 @@ export function zoneOffsetMinutes(utcMs: number, timeZone: string): number {
   });
   const parts = dtf.formatToParts(new Date(utcMs));
   const map: Record<string, number> = {};
+  let era = "";
   for (const part of parts) {
+    if (part.type === "era") {
+      era = part.value;
+      continue;
+    }
     if (part.type !== "literal") map[part.type] = Number(part.value);
   }
   // `era: short` + hour12:false: hour "24" normalization for midnight in some
   // runtimes — treat hour 24 as 0. BC/AD handled via year sign below.
   let year = map.year as number;
-  if (map.era === "BC" || map.era === "B") year = 1 - year;
+  if (era === "BC" || era === "B") year = 1 - year;
   const hour = map.hour === 24 ? 0 : (map.hour as number);
   const asUTC = Date.UTC(
     year,

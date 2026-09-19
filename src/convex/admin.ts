@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { encodeReservationError, ReservationErrorCode, reservationError } from "../lib/errors";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { scheduleMirror } from "./reservations";
 
 function fail(code: ReservationErrorCode, message: string, httpStatus = 400): never {
   throw encodeReservationError(reservationError(code, message, httpStatus));
@@ -30,7 +31,7 @@ async function requireAdmin(ctx: MutationCtx): Promise<{
     .unique();
   if (admin) return { userId, restaurantId: admin.restaurantId as unknown as string };
 
-  const user = await ctx.db.get(userId as any);
+  const user = (await ctx.db.get(userId as any)) as { role?: "admin" } | null;
   if (user?.role === "admin") return { userId, restaurantId: null };
 
   fail(ReservationErrorCode.FORBIDDEN, "Restaurant admins only.", 403);
@@ -50,7 +51,7 @@ export const myRestaurantWorkspace = query({
     let restaurantId: any = admin?.restaurantId ?? null;
 
     if (!restaurantId) {
-      const user = await ctx.db.get(userId);
+      const user = (await ctx.db.get(userId)) as { role?: string } | null;
       if (user?.role !== "admin") return null;
       const any = (await ctx.db.query("restaurants").order("asc").take(1))[0];
       restaurantId = any?._id ?? null;
@@ -86,7 +87,7 @@ function validateHours(weekly: { day: number; open: string | null; close: string
     }
     const closed = e.open === null || e.close === null;
     if (!closed) {
-      const t = /^([01]\d|2[0-3]):[0-5]\d$/.test(e.open) && /^([01]\d|2[0-3]):[0-5]\d$/.test(e.close);
+      const t = /^([01]\d|2[0-3]):[0-5]\d$/.test(e.open ?? "") && /^([01]\d|2[0-3]):[0-5]\d$/.test(e.close ?? "");
       if (!t) fail(ReservationErrorCode.VALIDATION, "Hours must be HH:MM strings.");
     }
   }
@@ -102,7 +103,7 @@ export const updateHours = mutation({
     const restaurant = await ctx.db.get(restaurantId as any);
     if (!restaurant) fail(ReservationErrorCode.NOT_FOUND, "Restaurant not found.", 404);
 
-    await ctx.db.patch(restaurantId, { openingHours: { weekly } });
+    await ctx.db.patch(restaurantId as any, { openingHours: { weekly } });
     const mirror = await ctx.db
       .query("restaurant_hours")
       .withIndex("by_restaurant", (q) => q.eq("restaurantId", restaurantId as any))
@@ -110,7 +111,7 @@ export const updateHours = mutation({
     if (mirror) {
       await ctx.db.patch(mirror._id, { weekly, updatedAt: Date.now() });
     } else {
-      await ctx.db.insert("restaurant_hours", { restaurantId, weekly, updatedAt: Date.now() });
+      await ctx.db.insert("restaurant_hours", { restaurantId: restaurantId as any, weekly, updatedAt: Date.now() });
     }
     return { ok: true as const };
   },
@@ -156,7 +157,7 @@ export const updateRestaurantInfo = mutation({
       fail(ReservationErrorCode.VALIDATION, "Invalid IANA timezone.");
     }
 
-    await ctx.db.patch(restaurantId, input);
+    await ctx.db.patch(restaurantId as any, input);
     return { ok: true as const };
   },
 });
@@ -177,7 +178,7 @@ export const addTable = mutation({
     const nextNumber = existing.reduce((m, t) => Math.max(m, t.tableNumber), 0) + 1;
 
     const id = await ctx.db.insert("restaurant_tables", {
-      restaurantId,
+      restaurantId: restaurantId as any,
       tableNumber: nextNumber,
       capacity,
       status: "active",
@@ -193,7 +194,7 @@ export const updateTable = mutation({
     const { restaurantId } = await requireAdmin(ctx);
     if (!restaurantId) fail(ReservationErrorCode.FORBIDDEN, "No restaurant assigned.", 403);
     const table = await ctx.db.get(tableId);
-    if (!table || table.restaurantId !== restaurantId) {
+    if (!table || table.restaurantId !== (restaurantId as any)) {
       fail(ReservationErrorCode.FORBIDDEN, "That table is not in your restaurant.", 403);
     }
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) {
@@ -258,6 +259,20 @@ export const adminCancelReservation = mutation({
       failureReason: null,
       requestId: null,
       createdAt: Date.now(),
+    });
+    const table = await ctx.db.get(res.tableId);
+    scheduleMirror(ctx, {
+      restaurantId: res.restaurantId,
+      reservationId: res._id,
+      code: res.code,
+      result: "cancelled",
+      tableNumber: table?.tableNumber ?? 0,
+      partySize: res.partySize,
+      localDate: res.localDate,
+      localTime: res.localTime,
+      startUtc: res.startTimeUtc,
+      endUtc: res.endTimeUtc,
+      requestId: null,
     });
     return { ok: true as const };
   },
