@@ -2,9 +2,10 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
-import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import { ConvexProviderWithAuth } from "convex/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
+import { useFirebaseAuthBridge } from "@/lib/firebase";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
@@ -115,7 +116,7 @@ createRoot(document.getElementById("root")!).render(
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
-      <ConvexAuthProvider client={convex}>
+      <ConvexProviderWithAuth client={convex} useAuth={useFirebaseAuthBridge}>
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
@@ -142,7 +143,7 @@ createRoot(document.getElementById("root")!).render(
           </Suspense>
         </BrowserRouter>
         <Toaster />
-      </ConvexAuthProvider>
+      </ConvexProviderWithAuth>
     </RootErrorBoundary>
   </StrictMode>,
 );

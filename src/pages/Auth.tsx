@@ -8,15 +8,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
+import { Label } from "@/components/ui/label";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useFirebaseConfig } from "@/lib/firebase";
 import logo from "@/assets/logo.svg";
-import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
+import { ArrowRight, KeyRound, Loader2, Mail, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -35,15 +32,24 @@ function resolveRedirectAfterAuth(
 }
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
-  const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
+  const {
+    isLoading: authLoading,
+    isAuthenticated,
+    signIn,
+    signUp,
+    signInAsGuest,
+  } = useAuth();
+  const { configured: firebaseConfigured, loading: configLoading } =
+    useFirebaseConfig();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(
     searchParams.get("returnTo"),
     redirectAfterAuth,
   );
-  const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
-  const [otp, setOtp] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,44 +58,48 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-      setStep({ email: formData.get("email") as string });
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Email sign-in error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send verification code. Please try again.",
-      );
-      setIsLoading(false);
+
+  function friendlyAuthError(e: unknown): string {
+    const code =
+      typeof e === "object" && e !== null && "code" in e
+        ? String((e as { code: unknown }).code)
+        : "";
+    switch (code) {
+      case "auth/invalid-credential":
+      case "auth/wrong-password":
+      case "auth/user-not-found":
+        return "Incorrect email or password.";
+      case "auth/email-already-in-use":
+        return "An account with this email already exists — sign in instead.";
+      case "auth/weak-password":
+        return "Password should be at least 6 characters.";
+      case "auth/invalid-email":
+        return "That email address doesn't look right.";
+      case "auth/too-many-requests":
+        return "Too many attempts — please wait a moment and try again.";
+      case "auth/operation-not-allowed":
+        return "This sign-in method is disabled in Firebase. Enable Email/Password (and Anonymous for guests) in the Firebase console.";
+      case "auth/network-request-failed":
+        return "Network error — check your connection and try again.";
+      default:
+        return e instanceof Error ? e.message : "Sign-in failed. Please try again.";
     }
-  };
+  }
 
-  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
     try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-
-      console.log("signed in");
-
+      if (mode === "signUp") {
+        await signUp(email.trim(), password);
+      } else {
+        await signIn(email.trim(), password);
+      }
       navigate(redirect);
-    } catch (error) {
-      console.error("OTP verification error:", error);
-
-      setError("The verification code you entered is incorrect.");
+    } catch (e) {
+      setError(friendlyAuthError(e));
       setIsLoading(false);
-
-      setOtp("");
     }
   };
 
@@ -97,198 +107,158 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      console.log("Attempting anonymous sign in...");
-      await signIn("anonymous");
-      console.log("Anonymous sign in successful");
+      await signInAsGuest();
       navigate(redirect);
-    } catch (error) {
-      console.error("Guest login error:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
-      setError(`Failed to sign in as guest: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (e) {
+      setError(friendlyAuthError(e));
       setIsLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col">
-
-      
       {/* Auth Content */}
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center px-4">
         <div className="flex items-center justify-center h-full flex-col">
-        <Card className="min-w-[350px] pb-0 border shadow-md">
-          {step === "signIn" ? (
+          <Card className="min-w-[350px] pb-0 border shadow-md">
             <>
               <CardHeader className="text-center">
-              <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="Lock Icon"
-                      width={64}
-                      height={64}
-                      className="rounded-lg mb-4 mt-4 cursor-pointer"
-                      onClick={() => navigate("/")}
-                    />
-                  </div>
-                <CardTitle className="text-xl">Get Started</CardTitle>
+                <div className="flex justify-center">
+                  <img
+                    src={logo}
+                    alt="TableKeeper"
+                    width={64}
+                    height={64}
+                    className="rounded-lg mb-4 mt-4 cursor-pointer"
+                    onClick={() => navigate("/")}
+                  />
+                </div>
+                <CardTitle className="text-xl">
+                  {mode === "signUp" ? "Create your account" : "Welcome back"}
+                </CardTitle>
                 <CardDescription>
-                  Enter your email to log in or sign up
+                  {mode === "signUp"
+                    ? "Sign up with email to start booking tables"
+                    : "Sign in with email to manage your reservations"}
                 </CardDescription>
               </CardHeader>
-              <form onSubmit={handleEmailSubmit}>
-                <CardContent>
-                  
-                  <div className="relative flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <form onSubmit={handleSubmit}>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
-                        name="email"
+                        id="email"
                         placeholder="name@example.com"
                         type="email"
                         className="pl-9"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
                         disabled={isLoading}
                         required
                       />
                     </div>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      size="icon"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" />
-                      )}
-                    </Button>
                   </div>
-                  {error && (
-                    <p className="mt-2 text-sm text-red-500">{error}</p>
-                  )}
-                  
-                  <div className="mt-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="password"
+                        placeholder={mode === "signUp" ? "At least 6 characters" : "Your password"}
+                        type="password"
+                        className="pl-9"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete={mode === "signUp" ? "new-password" : "current-password"}
+                        minLength={6}
+                        disabled={isLoading}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {error && <p className="text-sm text-red-500">{error}</p>}
+
+                  <Button type="submit" className="w-full" disabled={isLoading || configLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {mode === "signUp" ? "Creating account…" : "Signing in…"}
+                      </>
+                    ) : (
+                      <>
+                        {mode === "signUp" ? "Create account" : "Sign in"}
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+
+                  <div className="mt-1">
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
                         <span className="w-full border-t" />
                       </div>
                       <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">
-                          Or
-                        </span>
+                        <span className="bg-background px-2 text-muted-foreground">Or</span>
                       </div>
                     </div>
-                    
+
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full mt-4"
                       onClick={handleGuestLogin}
-                      disabled={isLoading}
+                      disabled={isLoading || configLoading}
                     >
                       <UserX className="mr-2 h-4 w-4" />
                       Continue as Guest
                     </Button>
-                  </div>
-                </CardContent>
-              </form>
-            </>
-          ) : (
-            <>
-              <CardHeader className="text-center mt-4">
-                <CardTitle>Check your email</CardTitle>
-                <CardDescription>
-                  We've sent a code to {step.email}
-                </CardDescription>
-              </CardHeader>
-              <form onSubmit={handleOtpSubmit}>
-                <CardContent className="pb-4">
-                  <input type="hidden" name="email" value={step.email} />
-                  <input type="hidden" name="code" value={otp} />
 
-                  <div className="flex justify-center">
-                    <InputOTP
-                      value={otp}
-                      onChange={setOtp}
-                      maxLength={6}
-                      disabled={isLoading}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && otp.length === 6 && !isLoading) {
-                          // Find the closest form and submit it
-                          const form = (e.target as HTMLElement).closest("form");
-                          if (form) {
-                            form.requestSubmit();
-                          }
-                        }
-                      }}
-                    >
-                      <InputOTPGroup>
-                        {Array.from({ length: 6 }).map((_, index) => (
-                          <InputOTPSlot key={index} index={index} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                  {error && (
-                    <p className="mt-2 text-sm text-red-500 text-center">
-                      {error}
+                    <p className="mt-4 text-center text-sm text-muted-foreground">
+                      {mode === "signUp" ? (
+                        <>
+                          Already have an account?{" "}
+                          <Button
+                            type="button"
+                            variant="link"
+                            className="p-0 h-auto"
+                            onClick={() => {
+                              setMode("signIn");
+                              setError(null);
+                            }}
+                          >
+                            Sign in
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          New to TableKeeper?{" "}
+                          <Button
+                            type="button"
+                            variant="link"
+                            className="p-0 h-auto"
+                            onClick={() => {
+                              setMode("signUp");
+                              setError(null);
+                            }}
+                          >
+                            Create an account
+                          </Button>
+                        </>
+                      )}
                     </p>
-                  )}
-                  <p className="text-sm text-muted-foreground text-center mt-4">
-                    Didn't receive a code?{" "}
-                    <Button
-                      variant="link"
-                      className="p-0 h-auto"
-                      onClick={() => setStep("signIn")}
-                    >
-                      Try again
-                    </Button>
-                  </p>
+                  </div>
                 </CardContent>
-                <CardFooter className="flex-col gap-2">
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading || otp.length !== 6}
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        Verify code
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setStep("signIn")}
-                    disabled={isLoading}
-                    className="w-full"
-                  >
-                    Use different email
-                  </Button>
-                </CardFooter>
               </form>
             </>
-          )}
 
-          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-muted border-t rounded-b-lg">
-            Secured by{" "}
-            <a
-              href="https://freebuff.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-primary transition-colors"
-            >
-              freebuff.com
-            </a>
-          </div>
-        </Card>
+            <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-muted border-t rounded-b-lg">
+              Secured by Firebase Authentication
+            </div>
+          </Card>
         </div>
       </div>
     </div>

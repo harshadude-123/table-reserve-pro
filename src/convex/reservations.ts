@@ -34,12 +34,12 @@
  * network retries can never create two reservations.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, internalMutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { encodeReservationError, ReservationErrorCode, reservationError } from "../lib/errors";
+import { resolveUserId } from "./firebaseIdentity";
 import {
   localToUtcMs,
   addMinutesToTime,
@@ -84,39 +84,49 @@ export { checkOverlap } from "../lib/scheduling";
 /**
  * Fire-and-forget mirror of a committed reservation event to Firebase
  * Realtime Database (see firebaseRtdb.ts). Scheduled after the mutation
- * commits, so it can never affect the transactional booking outcome.
+ * commits, so it can never affect the transactional booking outcome. The
+ * mirror persists the full reservation document (upsert) plus the activity
+ * feed entry, giving RTDB a durable, realtime copy of every booking.
  */
 export function scheduleMirror(
   ctx: MutationCtx,
   event: {
     restaurantId: Id<"restaurants">;
     reservationId: Id<"reservations"> | null;
+    customerFirebaseUid?: string | null;
     code: string | null;
     result: string;
     tableNumber: number | null;
     partySize: number | null;
     localDate: string | null;
     localTime: string | null;
+    localEndTime?: string | null;
     startUtc: number | null;
     endUtc: number | null;
+    status?: string;
     requestId: string | null;
   },
 ): void {
-  ctx.scheduler
-    .runAfter(0, internal.firebaseRtdb.mirrorReservationEvent, {
+  void (async () => {
+    const restaurant = await ctx.db.get(event.restaurantId);
+    await ctx.scheduler.runAfter(0, internal.firebaseRtdb.mirrorReservationEvent, {
       restaurantId: event.restaurantId,
+      restaurantName: restaurant?.name ?? undefined,
       reservationId: event.reservationId,
+      customerFirebaseUid: event.customerFirebaseUid ?? null,
       code: event.code,
       result: event.result,
       tableNumber: event.tableNumber ?? 0,
       partySize: event.partySize ?? 0,
       localDate: event.localDate ?? "",
       localTime: event.localTime ?? "",
+      localEndTime: event.localEndTime ?? undefined,
       startUtc: event.startUtc ?? 0,
       endUtc: event.endUtc ?? 0,
+      status: event.status,
       requestId: event.requestId,
-    })
-    .catch((e) => console.error("[firebase-rtdb] scheduling failed:", e));
+    });
+  })().catch((e) => console.error("[firebase-rtdb] scheduling failed:", e));
 }
 
 /** Human-friendly confirmation code: TK-<7 unambiguous base32 chars>. */
@@ -142,7 +152,7 @@ function fail(
 /* ------------------------------------------------------------------ */
 
 async function requireUser(ctx: MutationCtx | QueryCtx): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
+  const userId = await resolveUserId(ctx);
   if (userId === null) fail(ReservationErrorCode.UNAUTHENTICATED, "Sign in to continue.", 401);
   return userId;
 }
@@ -589,6 +599,9 @@ async function doReserve(
     updatedAt: nowMs,
   });
 
+  // Firebase UID of the booking customer (for RTDB per-user reads).
+  const customerDoc = await ctx.db.get(userId);
+
   if (input.idempotencyKey) {
     // Ledger row commits atomically with the reservation. Racing duplicates
     // of the same key collide here at commit, get retried by OCC, and then
@@ -616,14 +629,17 @@ async function doReserve(
   scheduleMirror(ctx, {
     restaurantId: restaurant._id,
     reservationId,
+    customerFirebaseUid: customerDoc?.firebaseUid ?? null,
     code,
     result: "confirmed",
     tableNumber: chosen.table.tableNumber,
     partySize: input.partySize,
     localDate: input.date,
     localTime: input.time,
+    localEndTime: bounds.endTime,
     startUtc,
     endUtc,
+    status: "confirmed",
     requestId: input.idempotencyKey ?? null,
   });
 
@@ -690,17 +706,21 @@ export const cancelReservation = mutation({
       requestId: null,
     });
     const table = await ctx.db.get(res.tableId);
+    const customerDoc = await ctx.db.get(res.customerId);
     scheduleMirror(ctx, {
       restaurantId: res.restaurantId,
       reservationId: res._id,
+      customerFirebaseUid: customerDoc?.firebaseUid ?? null,
       code: res.code,
       result: "cancelled",
       tableNumber: table?.tableNumber ?? 0,
       partySize: res.partySize,
       localDate: res.localDate,
       localTime: res.localTime,
+      localEndTime: res.localEndTime,
       startUtc: res.startTimeUtc,
       endUtc: res.endTimeUtc,
+      status: "cancelled",
       requestId: null,
     });
     return { ok: true as const };
@@ -798,17 +818,21 @@ export const modifyReservation = mutation({
       requestId: null,
     });
 
+    const customerDoc = await ctx.db.get(res.customerId);
     scheduleMirror(ctx, {
       restaurantId: res.restaurantId,
       reservationId: res._id,
+      customerFirebaseUid: customerDoc?.firebaseUid ?? null,
       code: res.code,
       result: "modified",
       tableNumber: chosen.tableNumber,
       partySize,
       localDate: date,
       localTime: time,
+      localEndTime: bounds.endTime,
       startUtc: bounds.startUtc,
       endUtc: bounds.endUtc,
+      status: "confirmed",
       requestId: null,
     });
 

@@ -44,7 +44,11 @@ const schema = defineSchema(
 
       /** Demo-profile claim marker for one-click demo accounts. */
       demoRole: v.optional(v.union(v.literal("customer"), v.literal("owner"))),
-    }).index("email", ["email"]), // index for the email. do not remove or modify
+
+      /** Firebase Auth UID — set when the user signs in via Firebase Auth. */
+      firebaseUid: v.optional(v.string()),
+    }).index("email", ["email"]) // index for the email. do not remove or modify
+      .index("firebaseUid", ["firebaseUid"]),
 
     /* ------------------------------------------------------------------ */
     /* TableKeeper domain                                                  */

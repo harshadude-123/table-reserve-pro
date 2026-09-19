@@ -307,7 +307,7 @@ export function ClaimOwnerCard() {
     setBusy(true);
     try {
       await claimOwner({});
-      toast.success("You now manage a demo restaurant — switching view");
+      toast.success("Restaurant linked — switching to the owner view");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not claim a restaurant");
     } finally {
@@ -323,7 +323,7 @@ export function ClaimOwnerCard() {
         </div>
         <p className="font-medium">Run a restaurant?</p>
         <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-          Try the owner dashboard: claim the demo restaurant to manage tables,
+          Claim a restaurant to unlock the owner dashboard: manage tables,
           hours and today's bookings.
         </p>
         <Button
@@ -331,7 +331,7 @@ export function ClaimOwnerCard() {
           disabled={busy}
           onClick={() => void claim()}
         >
-          {busy ? "Claiming…" : "Claim demo restaurant"}
+          {busy ? "Claiming…" : "Claim a restaurant"}
         </Button>
       </CardContent>
     </Card>

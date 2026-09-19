@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import { encodeReservationError, ReservationErrorCode, reservationError } from "../lib/errors";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { resolveUserId } from "./firebaseIdentity";
 import { scheduleMirror } from "./reservations";
 
 function fail(code: ReservationErrorCode, message: string, httpStatus = 400): never {
@@ -22,7 +22,7 @@ async function requireAdmin(ctx: MutationCtx): Promise<{
   userId: string;
   restaurantId: string | null;
 }> {
-  const userId = (await getAuthUserId(ctx)) as unknown as string;
+  const userId = (await resolveUserId(ctx)) as unknown as string;
   if (userId === null) fail(ReservationErrorCode.UNAUTHENTICATED, "Sign in to continue.", 401);
 
   const admin = await ctx.db
@@ -41,7 +41,7 @@ async function requireAdmin(ctx: MutationCtx): Promise<{
 export const myRestaurantWorkspace = query({
   args: {},
   handler: async (ctx) => {
-    const userId = (await getAuthUserId(ctx)) as any;
+    const userId = (await resolveUserId(ctx)) as any;
     if (userId === null) return null;
 
     const admin = await ctx.db
@@ -261,17 +261,21 @@ export const adminCancelReservation = mutation({
       createdAt: Date.now(),
     });
     const table = await ctx.db.get(res.tableId);
+    const customerDoc = await ctx.db.get(res.customerId);
     scheduleMirror(ctx, {
       restaurantId: res.restaurantId,
       reservationId: res._id,
+      customerFirebaseUid: customerDoc?.firebaseUid ?? null,
       code: res.code,
       result: "cancelled",
       tableNumber: table?.tableNumber ?? 0,
       partySize: res.partySize,
       localDate: res.localDate,
       localTime: res.localTime,
+      localEndTime: res.localEndTime,
       startUtc: res.startTimeUtc,
       endUtc: res.endTimeUtc,
+      status: "cancelled",
       requestId: null,
     });
     return { ok: true as const };

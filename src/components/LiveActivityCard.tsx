@@ -1,40 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLiveActivity } from "@/hooks/use-live-activity";
+import { useFirebaseConfig } from "@/lib/firebase";
+import { subscribeToActivity, type ActivitySubscriptionHandle } from "@/lib/rtdbClient";
 import { formatWallTime } from "@/lib/tz";
 import type { LiveEvent } from "@/convex/firebaseRtdb";
 import {
   Activity,
   CheckCircle2,
   Clock,
-  FlaskConical,
+  Database,
   PencilLine,
-  RefreshCw,
+  Radio,
+  ShieldCheck,
   XCircle,
   Zap,
 } from "lucide-react";
-
-const RESULTS = ["confirmed", "cancelled", "modified"] as const;
-
-function randomEvent(): LiveEvent {
-  const result = RESULTS[Math.floor(Math.random() * RESULTS.length)];
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const h = pad(Math.max(17, Math.min(21, now.getHours() + Math.floor(Math.random() * 3))));
-  return {
-    id: `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    code: `TK-${Math.random().toString(36).slice(2, 9).toUpperCase()}`,
-    result,
-    tableNumber: 1 + Math.floor(Math.random() * 12),
-    partySize: 1 + Math.floor(Math.random() * 6),
-    localDate: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    localTime: `${h}:${["00", "30"][Math.floor(Math.random() * 2)]}`,
-    at: Date.now(),
-  };
-}
 
 function EventRow({ event }: { event: LiveEvent }) {
   const isConfirmed = event.result === "confirmed";
@@ -83,79 +67,102 @@ function EventRow({ event }: { event: LiveEvent }) {
   );
 }
 
+/**
+ * Live activity card — real Firebase Realtime Database data only.
+ *
+ * Subscribes to `activity/{restaurantId}` with onValue, so events appear
+ * sub-second after the server-side mirror writes them. There are NO
+ * simulated/demo events in production UI: when the integration is not
+ * configured the card shows exactly what is needed to finish setup.
+ */
 export function LiveActivityCard() {
-  const { loading, error, configured, reason, events, refresh } = useLiveActivity(true);
-  const [demoEvents, setDemoEvents] = useState<LiveEvent[]>(() =>
-    Array.from({ length: 3 }, randomEvent),
-  );
-  const demo = !configured;
+  const workspace = useQuery(api.admin.myRestaurantWorkspace, {});
+  const { configured, loading: configLoading } = useFirebaseConfig();
 
-  const simulate = () => {
-    setDemoEvents((prev) => [randomEvent(), ...prev].slice(0, 8));
-  };
+  const restaurantId =
+    workspace && workspace !== null
+      ? ((workspace.restaurant as unknown as { _id: string })._id ?? null)
+      : null;
+
+  const [events, setEvents] = useState<LiveEvent[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    setEvents(null);
+    setError(false);
+    if (!configured || !restaurantId) return;
+
+    const handle: ActivitySubscriptionHandle | null = subscribeToActivity(
+      restaurantId,
+      (incoming) => {
+        setEvents(incoming);
+        setError(false);
+      },
+      () => setError(true),
+      25,
+    );
+    if (!handle) {
+      setError(true);
+      return;
+    }
+    return handle.unsubscribe;
+  }, [configured, restaurantId]);
+
+  const loadingFeed = configured && restaurantId !== null && events === null && !error;
 
   return (
     <Card className="border-border/70 shadow-none">
       <CardHeader className="flex flex-row items-start justify-between space-y-0">
         <div>
           <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Zap className="size-5" />
+            <Radio className="size-5" />
           </div>
           <CardTitle className="flex items-center gap-2">
             Live activity
             <span
-              className="relative flex size-2"
-              title={demo ? "Demo preview — Firebase not configured" : "Streaming from Firebase Realtime Database"}
+              className={`relative flex size-2 ${configured && !error ? "" : "opacity-40"}`}
+              title={
+                configured
+                  ? error
+                    ? "Realtime connection error — retrying automatically"
+                    : "Streaming from Firebase Realtime Database"
+                  : "Firebase not configured"
+              }
             >
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+              <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 ${configured && !error ? "animate-ping bg-emerald-400" : "bg-muted-foreground"}`} />
+              <span className={`relative inline-flex size-2 rounded-full ${configured && !error ? "bg-emerald-500" : "bg-muted-foreground"}`} />
             </span>
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Reservation events mirrored to Firebase Realtime Database
+            Reservation events streamed from Firebase Realtime Database
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          title="Refresh"
-          onClick={() => void refresh()}
-        >
-          <RefreshCw className="size-4" />
-        </Button>
       </CardHeader>
       <CardContent>
-        {demo ? (
-          <>
-            <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2.5">
-              <FlaskConical className="mt-0.5 size-4 shrink-0 text-amber-500" />
-              <div className="text-xs leading-relaxed">
-                <p className="font-medium text-amber-600 dark:text-amber-400">Demo preview</p>
-                <p className="mt-0.5 text-muted-foreground">
-                  Firebase keys aren&apos;t configured yet, so simulated events are shown. Add{" "}
-                  <code className="font-mono">FIREBASE_DATABASE_URL</code>,{" "}
-                  <code className="font-mono">FIREBASE_CLIENT_EMAIL</code> and{" "}
-                  <code className="font-mono">FIREBASE_PRIVATE_KEY</code> in the Keys tab to stream
-                  real events here.
-                </p>
-              </div>
-            </div>
-            <ul className="divide-y divide-border/60">
-              {demoEvents.map((e) => (
-                <EventRow key={e.id} event={e} />
-              ))}
-            </ul>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4 w-full cursor-pointer gap-2"
-              onClick={simulate}
-            >
-              <Zap className="size-4" /> Simulate event
-            </Button>
-          </>
-        ) : loading ? (
+        {configLoading ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Connecting…</p>
+        ) : !configured ? (
+          <div className="py-6 text-center">
+            <Database className="mx-auto mb-3 size-8 text-muted-foreground/50" />
+            <p className="text-sm font-medium">Firebase not connected</p>
+            <p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">
+              Add the Firebase keys (project ID, web API key, database URL and
+              service account) in the Keys tab to stream live reservations here.
+            </p>
+          </div>
+        ) : !restaurantId ? (
+          <div className="py-6 text-center">
+            <ShieldCheck className="mx-auto mb-3 size-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              Live activity is available to restaurant admins once a restaurant
+              is linked to this account.
+            </p>
+          </div>
+        ) : error ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Couldn't reach the realtime feed. Retrying automatically…
+          </p>
+        ) : loadingFeed ? (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3">
@@ -167,21 +174,13 @@ export function LiveActivityCard() {
               </div>
             ))}
           </div>
-        ) : error || reason === "error" ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Couldn&apos;t reach the realtime feed. It will retry automatically.
-          </p>
-        ) : reason === "forbidden" ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Live activity is available to restaurant admins.
-          </p>
-        ) : events.length === 0 ? (
+        ) : (events?.length ?? 0) === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No reservation activity yet. New bookings appear here in real time.
           </p>
         ) : (
           <ul className="divide-y divide-border/60">
-            {events.slice(0, 8).map((e) => (
+            {events!.slice(0, 8).map((e) => (
               <EventRow key={e.id} event={e} />
             ))}
           </ul>

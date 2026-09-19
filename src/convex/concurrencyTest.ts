@@ -13,7 +13,6 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { localToUtcMs, addMinutesToTime } from "../lib/tz";
 
 export interface AttemptOutcome {
@@ -49,7 +48,7 @@ export const run = action({
     n: v.optional(v.number()),
   },
   handler: async (ctx, { restaurantId, tableId, date, time, n }): Promise<ConcurrencyTestReport> => {
-    const userId = await getAuthUserId(ctx);
+    const userId = (await ctx.runQuery(internal.firebaseIdentity.currentUserId, {})) as string | null;
     if (userId === null) throw new Error("Sign in to run the concurrency test.");
     const count = Math.max(2, Math.min(100, Math.floor(n ?? 20)));
 

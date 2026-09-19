@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { resolveUserId } from "./firebaseIdentity";
 
 /**
  * Demo-profile claiming: the Auth page offers one-click "Demo customer" and
@@ -17,7 +17,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 export const claimCustomer = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await resolveUserId(ctx);
     if (userId === null) throw new Error("Sign in first.");
     const user = await ctx.db.get(userId);
     if (!user) throw new Error("User missing.");
@@ -35,7 +35,7 @@ export const claimCustomer = mutation({
 export const claimOwner = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await resolveUserId(ctx);
     if (userId === null) throw new Error("Sign in first.");
     const user = await ctx.db.get(userId);
     if (!user) throw new Error("User missing.");

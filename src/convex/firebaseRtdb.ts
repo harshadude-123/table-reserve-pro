@@ -26,7 +26,6 @@
  *   or a single FIREBASE_SERVICE_ACCOUNT containing the full JSON key file.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { JWT } from "google-auth-library";
 import { action, internalAction } from "./_generated/server";
@@ -98,20 +97,32 @@ export interface MirrorResult {
 
 /* ------------------------------------------------------------------ */
 /* Mirror: called (scheduled) by the reservation mutations             */
+/*                                                                     */
+/* Persists the FULL reservation record to RTDB:                       */
+/*   reservations/{restaurantId}/{reservationId} → upserted document   */
+/*   activity/{restaurantId}/{pushId}            → chronological feed  */
+/*   stats/{restaurantId}                        → latest-event tile   */
+/*                                                                     */
+/* Convex remains the transactional source of truth for the            */
+/* no-double-booking guarantee; RTDB holds the durable, realtime copy. */
 /* ------------------------------------------------------------------ */
 
 export const mirrorReservationEvent = internalAction({
   args: {
     restaurantId: v.string(),
+    restaurantName: v.optional(v.string()),
     reservationId: v.union(v.string(), v.null()),
+    customerFirebaseUid: v.union(v.string(), v.null()),
     code: v.union(v.string(), v.null()),
     result: v.string(), // "confirmed" | "cancelled" | "modified" | "conflict"
     tableNumber: v.number(),
     partySize: v.number(),
     localDate: v.string(),
     localTime: v.string(),
+    localEndTime: v.optional(v.string()),
     startUtc: v.number(),
     endUtc: v.number(),
+    status: v.optional(v.string()),
     requestId: v.union(v.string(), v.null()),
   },
   handler: async (_ctx, event): Promise<MirrorResult> => {
@@ -121,34 +132,62 @@ export const mirrorReservationEvent = internalAction({
     try {
       const token = await getAccessToken(cfg);
       const now = Date.now();
-      const payload = {
-        reservationId: event.reservationId,
-        code: event.code,
-        result: event.result,
-        tableNumber: event.tableNumber,
-        partySize: event.partySize,
-        localDate: event.localDate,
-        localTime: event.localTime,
-        startUtc: event.startUtc,
-        endUtc: event.endUtc,
-        requestId: event.requestId,
-        at: now,
-      };
+      const status = event.status ?? (event.result === "confirmed" ? "confirmed" : event.result);
 
-      // Push into the restaurant's chronological feed (RTDB push IDs sort).
+      // 1) Upsert the durable reservation document keyed by its id.
+      if (event.reservationId) {
+        const resUrl = rtdbUrl(cfg, `reservations/${event.restaurantId}/${event.reservationId}`);
+        resUrl.searchParams.set("auth", token);
+        const putRes = await fetch(resUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code: event.code,
+            customerFirebaseUid: event.customerFirebaseUid,
+            status,
+            result: event.result,
+            tableNumber: event.tableNumber,
+            partySize: event.partySize,
+            localDate: event.localDate,
+            localTime: event.localTime,
+            localEndTime: event.localEndTime ?? null,
+            startUtc: event.startUtc,
+            endUtc: event.endUtc,
+            restaurantName: event.restaurantName ?? null,
+            updatedAt: now,
+          }),
+        });
+        if (!putRes.ok) {
+          throw new Error(`RTDB reservation upsert failed (${putRes.status}): ${await putRes.text().catch(() => "")}`);
+        }
+      }
+
+      // 2) Append to the restaurant's chronological activity feed.
       const pushUrl = rtdbUrl(cfg, `activity/${event.restaurantId}`);
       pushUrl.searchParams.set("auth", token);
       const pushRes = await fetch(pushUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          reservationId: event.reservationId,
+          code: event.code,
+          result: event.result,
+          tableNumber: event.tableNumber,
+          partySize: event.partySize,
+          localDate: event.localDate,
+          localTime: event.localTime,
+          startUtc: event.startUtc,
+          endUtc: event.endUtc,
+          requestId: event.requestId,
+          at: now,
+        }),
       });
       if (!pushRes.ok) {
         throw new Error(`RTDB push failed (${pushRes.status}): ${await pushRes.text().catch(() => "")}`);
       }
       const pushBody = (await pushRes.json().catch(() => ({}))) as { name?: string };
 
-      // Latest-event summary tile.
+      // 3) Latest-event summary tile.
       const statsUrl = rtdbUrl(cfg, `stats/${event.restaurantId}`);
       statsUrl.searchParams.set("auth", token);
       await fetch(statsUrl, {
@@ -173,7 +212,7 @@ export const mirrorReservationEvent = internalAction({
 export const readLiveFeed = action({
   args: { restaurantId: v.optional(v.id("restaurants")), limit: v.optional(v.number()) },
   handler: async (ctx, { restaurantId, limit = 25 }): Promise<LiveFeedResult> => {
-    const userId = await getAuthUserId(ctx);
+    const userId = (await ctx.runQuery(internal.firebaseIdentity.currentUserId, {})) as string | null;
     if (userId === null) {
       return { configured: false, restaurantId: null, reason: "unauthenticated", events: [] };
     }
@@ -184,12 +223,12 @@ export const readLiveFeed = action({
       return { configured: false, restaurantId: restaurantId ?? null, reason: "not_configured", events: [] };
     }
 
-    const rid = restaurantId ?? (await ctx.runQuery(internal.rtdbHelpers.resolveAdminRestaurant, { userId }));
+    const rid = restaurantId ?? (await ctx.runQuery(internal.rtdbHelpers.resolveAdminRestaurant, { userId: userId as any }));
     if (!rid) {
       return { configured: true, restaurantId: null, reason: "no_restaurant", events: [] };
     }
 
-    const isAdmin = await ctx.runQuery(internal.rtdbHelpers.adminRestaurantCheck, { userId, restaurantId: rid });
+    const isAdmin = await ctx.runQuery(internal.rtdbHelpers.adminRestaurantCheck, { userId: userId as any, restaurantId: rid });
     if (!isAdmin) {
       return { configured: true, restaurantId: rid, reason: "forbidden", events: [] };
     }
