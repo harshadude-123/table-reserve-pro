@@ -257,6 +257,19 @@ function requestUtcMs(date: string, time: string, timeZone: string): number {
 }
 
 /**
+ * Pure overlap rule for the no-double-booking guarantee. Exported for unit
+ * tests. Existing [s,e) conflicts with requested [S,E) iff s < E && e > S.
+ * Back-to-back (e === S) does NOT conflict. Cancelled never conflicts.
+ */
+export function checkOverlap(
+  existing: { start: number; end: number; status?: string },
+  requested: { start: number; end: number },
+): boolean {
+  if (existing.status === "cancelled") return false;
+  return existing.start < requested.end && existing.end > requested.start;
+}
+
+/**
  * Grid rows for the admin calendar: time rows × table columns. A cell is
  * "BOOKED" when any active reservation overlaps the row interval for that
  * table; "AVAILABLE" otherwise. Pure and unit-testable.

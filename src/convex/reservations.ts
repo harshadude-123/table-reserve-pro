@@ -78,16 +78,8 @@ export interface ReserveResult {
   auditId?: string;
 }
 
-/** Pure overlap rule, exported for unit tests.
- *  existing [s,e) conflicts with requested [S,E) iff s < E && e > S.
- *  Back-to-back (e === S) does NOT conflict. Cancelled never conflicts. */
-export function checkOverlap(
-  existing: { start: number; end: number; status?: string },
-  requested: { start: number; end: number },
-): boolean {
-  if (existing.status === "cancelled") return false;
-  return existing.start < requested.end && existing.end > requested.start;
-}
+/** Pure overlap rule, re-exported from the pure scheduling lib. */
+export { checkOverlap } from "../lib/scheduling";
 
 /**
  * Fire-and-forget mirror of a committed reservation event to Firebase

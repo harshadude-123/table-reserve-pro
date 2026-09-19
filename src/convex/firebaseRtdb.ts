@@ -31,54 +31,7 @@ import { v } from "convex/values";
 import { JWT } from "google-auth-library";
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-
-/* ------------------------------------------------------------------ */
-/* Configuration                                                       */
-/* ------------------------------------------------------------------ */
-
-interface RtdbConfig {
-  databaseUrl: string;
-  clientEmail: string;
-  privateKey: string;
-  projectId: string;
-}
-
-function envOf(...names: string[]): string | undefined {
-  for (const name of names) {
-    const value = process.env[name];
-    if (value && value.trim()) return value.trim();
-  }
-  return undefined;
-}
-
-export function readRtdbConfig(): RtdbConfig | null {
-  const databaseUrlRaw = envOf("FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL");
-  if (!databaseUrlRaw) return null;
-
-  let clientEmail = envOf("FIREBASE_CLIENT_EMAIL");
-  let privateKey = envOf("FIREBASE_PRIVATE_KEY");
-  let projectId = envOf("FIREBASE_PROJECT_ID");
-
-  // A single full service-account JSON also works (convenient for key paste).
-  const svcJson = envOf("FIREBASE_SERVICE_ACCOUNT", "FIREBASE_SERVICE_ACCOUNT_JSON");
-  if (svcJson && (!clientEmail || !privateKey)) {
-    try {
-      const parsed = JSON.parse(svcJson) as Record<string, unknown>;
-      clientEmail ??= typeof parsed.client_email === "string" ? parsed.client_email : undefined;
-      privateKey ??= typeof parsed.private_key === "string" ? parsed.private_key : undefined;
-      projectId ??= typeof parsed.project_id === "string" ? parsed.project_id : undefined;
-    } catch {
-      // fall through to the individual variables
-    }
-  }
-  if (!clientEmail || !privateKey) return null;
-
-  // Keys pasted into a UI often arrive with escaped newlines.
-  if (privateKey.includes("\\n")) privateKey = privateKey.replace(/\\n/g, "\n");
-
-  const databaseUrl = `${databaseUrlRaw.startsWith("http") ? "" : "https://"}${databaseUrlRaw}`.replace(/\/+$/, "");
-  return { databaseUrl, clientEmail, privateKey, projectId: projectId ?? "" };
-}
+import { readRtdbConfig, type RtdbConfig } from "../lib/rtdbConfig";
 
 /* ------------------------------------------------------------------ */
 /* Auth token (cached best-effort per action isolate)                  */
