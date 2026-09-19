@@ -26,7 +26,10 @@ const REFRESH_MS = 10_000;
  * pushes to connected clients in real time; polling keeps this simple and
  * works everywhere. Only polls while `enabled` and the tab is visible.
  */
-export function useLiveActivity(enabled: boolean, refreshMs = REFRESH_MS): LiveActivityState {
+export function useLiveActivity(
+  enabled: boolean,
+  refreshMs = REFRESH_MS,
+): LiveActivityState & { refresh: () => Promise<void> } {
   const readLiveFeed = useAction(api.firebaseRtdb.readLiveFeed);
   const [state, setState] = useState<LiveActivityState>(INITIAL);
   const mounted = useRef(true);
@@ -60,5 +63,5 @@ export function useLiveActivity(enabled: boolean, refreshMs = REFRESH_MS): LiveA
     };
   }, [enabled, refresh, refreshMs]);
 
-  return state;
+  return { ...state, refresh };
 }

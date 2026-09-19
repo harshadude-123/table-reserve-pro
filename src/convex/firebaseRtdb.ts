@@ -178,6 +178,12 @@ export const readLiveFeed = action({
       return { configured: false, restaurantId: null, reason: "unauthenticated", events: [] };
     }
 
+    // Config check first: unconfigured → demo/empty states everywhere, and we
+    // skip the admin lookups entirely.
+    if (!readRtdbConfig()) {
+      return { configured: false, restaurantId: restaurantId ?? null, reason: "not_configured", events: [] };
+    }
+
     const rid = restaurantId ?? (await ctx.runQuery(internal.rtdbHelpers.resolveAdminRestaurant, { userId }));
     if (!rid) {
       return { configured: true, restaurantId: null, reason: "no_restaurant", events: [] };
