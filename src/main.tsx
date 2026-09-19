@@ -5,7 +5,7 @@ import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexProviderWithAuth } from "convex/react";
 import { ConvexReactClient } from "convex/react";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
-import { useFirebaseAuthBridge } from "@/lib/firebase";
+import { useFirebaseAuthBridge, FirebaseConfigBridge } from "@/lib/firebase";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
@@ -117,6 +117,10 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ConvexProviderWithAuth client={convex} useAuth={useFirebaseAuthBridge}>
+        {/* Runs the public firebaseWebConfig query INSIDE the provider and
+            publishes it to the module store the auth bridge reads. The bridge
+            hook itself must stay free of Convex hooks (see src/lib/firebase.ts). */}
+        <FirebaseConfigBridge />
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
