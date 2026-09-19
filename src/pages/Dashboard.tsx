@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LiveActivityCard } from "@/components/LiveActivityCard";
 import { useAuth } from "@/hooks/use-auth";
 import { formatWallTime } from "@/lib/tz";
+import { Link } from "react-router";
 import {
   CalendarDays,
   CalendarX2,
@@ -99,9 +100,12 @@ function CustomerReservations() {
         </CardHeader>
         <CardContent>
           {upcoming.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No upcoming reservations yet — find a table on the home page.
-            </p>
+            <div className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">No upcoming reservations yet.</p>
+              <Button asChild variant="outline" size="sm" className="mt-3 cursor-pointer">
+                <Link to="/">Find a table</Link>
+              </Button>
+            </div>
           ) : (
             <ul className="divide-y divide-border/60">
               {upcoming.map((r) => (
@@ -295,6 +299,45 @@ function OwnerWorkspace() {
   );
 }
 
+export function ClaimOwnerCard() {
+  const claimOwner = useMutation(api.demo.claimOwner);
+  const [busy, setBusy] = useState(false);
+
+  const claim = async () => {
+    setBusy(true);
+    try {
+      await claimOwner({});
+      toast.success("You now manage a demo restaurant — switching view");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not claim a restaurant");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="border-dashed border-border/70 shadow-none">
+      <CardContent className="py-8 text-center">
+        <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Store className="size-5" />
+        </div>
+        <p className="font-medium">Run a restaurant?</p>
+        <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+          Try the owner dashboard: claim the demo restaurant to manage tables,
+          hours and today's bookings.
+        </p>
+        <Button
+          className="mt-4 cursor-pointer"
+          disabled={busy}
+          onClick={() => void claim()}
+        >
+          {busy ? "Claiming…" : "Claim demo restaurant"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -351,7 +394,16 @@ export default function Dashboard() {
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div>{isOwner && tab === "restaurant" ? <OwnerWorkspace /> : <CustomerReservations />}</div>
+          <div className="space-y-6">
+            {isOwner && tab === "restaurant" ? (
+              <OwnerWorkspace />
+            ) : (
+              <>
+                <CustomerReservations />
+                {!isOwner && workspace !== undefined && <ClaimOwnerCard />}
+              </>
+            )}
+          </div>
           <LiveActivityCard />
         </div>
       </div>

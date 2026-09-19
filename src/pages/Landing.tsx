@@ -16,14 +16,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { UtensilsCrossed, Search, Star, MapPin, Clock, ShieldCheck, Zap, CalendarCheck } from "lucide-react";
 import { useNavigate } from "react-router";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type Restaurant = {
-  _id: string;
+  _id: Id<"restaurants">;
   name: string;
   description: string;
   city: string;
   cuisine: string;
   priceRange: string;
+  timezone: string;
   rating: number;
   ratingCount: number;
   openingHours: { weekly: { day: number; open: string | null; close: string | null }[] };
@@ -37,13 +39,22 @@ function todayLocalDate(): string {
 }
 
 function hoursToday(r: Restaurant): string {
-  const dow = new Date().getDay();
+  // Use the restaurant's own local calendar — a Boston restaurant closed
+  // "today" must reflect Boston's date, not the viewer's.
+  let tzDate: string;
+  try {
+    tzDate = new Intl.DateTimeFormat("en-CA", { timeZone: r.timezone }).format(new Date());
+  } catch {
+    tzDate = todayLocalDate();
+  }
+  const dow = new Date(`${tzDate}T00:00:00Z`).getUTCDay();
   const e = r.openingHours?.weekly?.find((h) => h.day === dow);
   if (!e || e.open === null || e.close === null) return "Closed today";
   return `Open ${e.open}–${e.close}`;
 }
 
 function RestaurantCard({ r, i }: { r: Restaurant; i: number }) {
+  const navigate = useNavigate();
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -81,9 +92,7 @@ function RestaurantCard({ r, i }: { r: Restaurant; i: number }) {
         <Button
           size="sm"
           className="mt-2 w-full cursor-pointer gap-2"
-          onClick={() => {
-            document.getElementById("restaurant-search")?.scrollIntoView({ behavior: "smooth" });
-          }}
+          onClick={() => navigate(`/restaurants/${r._id}`)}
         >
           <CalendarCheck className="size-4" /> Reserve a table
         </Button>
@@ -99,6 +108,13 @@ export default function Landing() {
   const [cuisine, setCuisine] = useState("all");
   const [city, setCity] = useState("all");
   const [price, setPrice] = useState("all");
+
+  const PRICE_LABELS: Record<string, string> = {
+    "$": "$ · Casual",
+    "$$": "$$ · Moderate",
+    "$$$": "$$$ · Upscale",
+    "$$$$": "$$$$ · Fine dining",
+  };
 
   // Idempotent demo seed — no-op when data already exists.
   const seedDemoData = useMutation(api.seed.seedDemoData);
@@ -209,6 +225,15 @@ export default function Landing() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={price} onValueChange={setPrice}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Price" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any price</SelectItem>
+              {(facets?.priceRanges ?? []).map((p) => (
+                <SelectItem key={p} value={p}>{PRICE_LABELS[p] ?? p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {loading ? (
@@ -235,6 +260,9 @@ export default function Landing() {
             ))}
           </div>
         )}
+
+        {/* Make the whole grid keyboard/click friendly: card buttons above
+            navigate to the restaurant page; this hint keeps the flow obvious. */}
       </section>
 
       {/* ---------------------------------------------------------------- */}

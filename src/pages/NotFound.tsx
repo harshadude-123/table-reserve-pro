@@ -1,4 +1,6 @@
 import { motion } from "framer-motion";
+import { Link } from "react-router";
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
@@ -17,6 +19,9 @@ export default function NotFound() {
             <div className="text-center">
               <h1 className="text-4xl font-bold text-gray-900 mb-4">404</h1>
               <p className="text-lg text-gray-600">Page Not Found</p>
+              <Button asChild className="mt-6 cursor-pointer">
+                <Link to="/">Back to TableKeeper</Link>
+              </Button>
             </div>
           </div>
         </div>
