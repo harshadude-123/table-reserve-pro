@@ -78,7 +78,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       case "auth/too-many-requests":
         return "Too many attempts — please wait a moment and try again.";
       case "auth/operation-not-allowed":
+      case "auth/configuration-not-found":
         return "This sign-in method is disabled in Firebase. Enable Email/Password (and Anonymous for guests) in the Firebase console.";
+      case "auth/unauthorized-domain":
+        return "This preview domain isn't authorized in Firebase yet. Add it under Authentication → Settings → Authorized domains in the Firebase console.";
       case "auth/network-request-failed":
         return "Network error — check your connection and try again.";
       default:
