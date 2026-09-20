@@ -119,7 +119,7 @@ createRoot(document.getElementById("root")!).render(
       <ConvexProviderWithAuth client={convex} useAuth={useFirebaseAuthBridge}>
         {/* Runs the public firebaseWebConfig query INSIDE the provider and
             publishes it to the module store the auth bridge reads. The bridge
-            hook itself must stay free of Convex hooks (see src/lib/firebase.ts). */}
+            hook itself must stay free of Convex hooks (see src/lib/firebase.tsx). */}
         <FirebaseConfigBridge />
         <BrowserRouter>
           <RouteSyncer />

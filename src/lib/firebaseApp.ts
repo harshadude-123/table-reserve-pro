@@ -2,7 +2,7 @@
  * Synchronous access to the Firebase app/auth instances.
  *
  * `getFirebaseAuth()` returns null until the public web config has been
- * fetched from the backend (see src/lib/firebase.ts which initializes the
+ * fetched from the backend (see src/lib/firebase.tsx which initializes the
  * app from the query result). All imperative auth calls go through here so
  * they never crash when Firebase is not yet configured.
  */

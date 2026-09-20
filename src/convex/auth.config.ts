@@ -14,7 +14,7 @@ const freebuffIssuer =
 //   aud: <projectId>
 // JWKS are served from googleapis (kid-keyed). This makes Firebase ID tokens
 // a perfect fit for Convex's customJwt validation path: the client passes the
-// ID token from Firebase Auth SDK (see src/lib/firebase.ts +
+// ID token from Firebase Auth SDK (see src/lib/firebase.tsx +
 // useFirebaseAuthBridge), and the backend verifies it against Google's JWKS.
 //
 // NOTE: the projectId must match the aud claim exactly. It comes from the

@@ -19,7 +19,7 @@
  *   mounted UNDER the provider in main.tsx — is the only place that runs the
  *   `users.firebaseWebConfig` query and publishes it into that store.
  */
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { Component, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -92,12 +92,65 @@ export function useFirebaseConfig() {
  * bridges Convex data into the Firebase bootstrapping path.
  */
 export function FirebaseConfigBridge() {
+  return (
+    <FirebaseConfigErrorBoundary>
+      <FirebaseConfigBridgeInner />
+    </FirebaseConfigErrorBoundary>
+  );
+}
+
+function FirebaseConfigBridgeInner() {
   const cfg = useQuery(api.users.firebaseWebConfig);
   useEffect(() => {
     // undefined = query still loading; null = not configured.
     if (cfg !== undefined) publishFirebaseConfig(cfg as FirebaseWebConfigPublic | null);
   }, [cfg]);
   return null;
+}
+
+/**
+ * `convex/react`'s useQuery THROWS query errors during render. A transient
+ * backend hiccup (e.g. loading while a push is in flight, so the function is
+ * briefly missing from the deployed bundle) would otherwise white-screen the
+ * entire app from this root-level query. Instead: swallow the error, render
+ * nothing (the store keeps reporting "loading"), and remount after a short
+ * delay — Convex re-delivers the result once the deployment recovers.
+ */
+class FirebaseConfigErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(err: Error) {
+    console.warn("[firebase] config query failed, retrying in 2.5s:", err.message);
+  }
+
+  componentDidMount() {
+    this.scheduleRetryIfFailed();
+  }
+
+  componentDidUpdate() {
+    this.scheduleRetryIfFailed();
+  }
+
+  componentWillUnmount() {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+  }
+
+  private scheduleRetryIfFailed() {
+    if (!this.state.failed || this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.setState({ failed: false });
+    }, 2500);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 /**
